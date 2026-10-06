@@ -53,9 +53,9 @@ std::atomic<int>  g_volume{100};
 HHOOK      g_kbHook = nullptr;
 HINSTANCE  g_hInst  = nullptr;
 
-const wchar_t* IE_CLASS    = L"IEClass";
-const wchar_t* RULES_CLASS = L"RulesClass";
-const wchar_t* BLOOD_CLASS = L"BloodClass";
+const wchar_t* IE_CLASS     = L"IEClass";
+const wchar_t* RULES_CLASS  = L"RulesClass";
+const wchar_t* BLOOD_CLASS  = L"BloodClass";
 const wchar_t* BLOCKS_CLASS = L"BlocksClass";
 
 std::atomic<int>  g_textStretch{0};
@@ -272,7 +272,7 @@ cleanup:
 }
 
 // ============================================================
-// ЦИКЛ MESSAGEBOX (2 окна параллельно)
+// ЦИКЛ MESSAGEBOX
 // ============================================================
 DWORD WINAPI MsgBoxThread1(LPVOID) {
     const wchar_t* msg =
@@ -301,9 +301,8 @@ DWORD WINAPI MsgBoxThread2(LPVOID) {
 // ФАЗА 1
 // ============================================================
 void Phase1_PixelShake() {
-    std::thread t1(MsgBoxThread1);
-    std::thread t2(MsgBoxThread2);
-    t1.detach(); t2.detach();
+    CreateThread(nullptr, 0, MsgBoxThread1, nullptr, 0, nullptr);
+    CreateThread(nullptr, 0, MsgBoxThread2, nullptr, 0, nullptr);
 
     g_byteFormula = 1;
     g_volume = 180;
@@ -349,7 +348,7 @@ void Phase1_PixelShake() {
 }
 
 // ============================================================
-// ФАЗА 2: заражение + череп на GDI
+// ФАЗА 2
 // ============================================================
 void Phase2_Infection() {
     PlaySoundW(MAKEINTRESOURCEW(IDR_RANSOM), g_hInst,
@@ -408,17 +407,13 @@ void Phase2_Infection() {
         BLENDFUNCTION bf = { AC_SRC_OVER, 0, (BYTE)alpha, 0 };
         AlphaBlend(hMem, 0, 0, sw, sh, hRed, 0, 0, sw, sh, bf);
 
-        // ================= ЧЕРЕП НА GDI =================
+        // ============ ЧЕРЕП ============
         {
             int cx = sw / 2;
             int cy = sh / 2;
-            int R = min(sw, sh) / 6;
+            int R = (sw < sh ? sw : sh) / 6;
 
-            // Красная аура вокруг черепа
             for (int i = 25; i > 0; --i) {
-                int auraAlpha = 30 - i;
-                if (auraAlpha < 0) auraAlpha = 0;
-                if (auraAlpha > 60) auraAlpha = 60;
                 HBRUSH auraB = CreateSolidBrush(RGB(150, 0, 0));
                 HPEN auraP = CreatePen(PS_SOLID, 1, RGB(150, 0, 0));
                 HGDIOBJ ao = SelectObject(hMem, auraB);
@@ -431,59 +426,45 @@ void Phase2_Infection() {
                 DeleteObject(auraP);
             }
 
-            // Основной купол черепа
             HBRUSH skullBrush = CreateSolidBrush(RGB(225, 225, 220));
             HPEN   skullPen   = CreatePen(PS_SOLID, 3, RGB(70, 70, 70));
             HGDIOBJ so = SelectObject(hMem, skullBrush);
             HGDIOBJ sp = SelectObject(hMem, skullPen);
-
-            // Верхняя часть (купол)
             Ellipse(hMem, cx - R, cy - R - 20, cx + R, cy + R - 40);
-
-            // Челюсть
             RoundRect(hMem, cx - R + 30, cy + R - 70,
                       cx + R - 30, cy + R + 40, 25, 25);
-
             SelectObject(hMem, so);
             SelectObject(hMem, sp);
             DeleteObject(skullBrush);
             DeleteObject(skullPen);
 
-            // Глазницы
             HBRUSH eyeHole = CreateSolidBrush(RGB(5, 0, 0));
             HPEN   eyePen  = CreatePen(PS_SOLID, 2, RGB(0, 0, 0));
             HGDIOBJ eo = SelectObject(hMem, eyeHole);
             HGDIOBJ ep = SelectObject(hMem, eyePen);
-
             int eyeW = R / 2;
             int eyeH = R / 2 + 15;
             int eyeY = cy - R / 3;
-
             Ellipse(hMem, cx - R/2 - eyeW/2, eyeY,
                           cx - R/2 + eyeW/2, eyeY + eyeH);
             Ellipse(hMem, cx + R/2 - eyeW/2, eyeY,
                           cx + R/2 + eyeW/2, eyeY + eyeH);
-
             SelectObject(hMem, eo);
             SelectObject(hMem, ep);
             DeleteObject(eyeHole);
             DeleteObject(eyePen);
 
-            // Красные зрачки
             HBRUSH pupil = CreateSolidBrush(RGB(255, 0, 0));
             HGDIOBJ po = SelectObject(hMem, pupil);
             HPEN np = (HPEN)SelectObject(hMem, GetStockObject(NULL_PEN));
-
             int pR = R / 8;
             int pY = eyeY + eyeH / 2;
             Ellipse(hMem, cx - R/2 - pR, pY - pR, cx - R/2 + pR, pY + pR);
             Ellipse(hMem, cx + R/2 - pR, pY - pR, cx + R/2 + pR, pY + pR);
-
             SelectObject(hMem, po);
             SelectObject(hMem, np);
             DeleteObject(pupil);
 
-            // Нос (треугольник)
             HBRUSH noseB = CreateSolidBrush(RGB(10, 0, 0));
             HGDIOBJ no = SelectObject(hMem, noseB);
             POINT nosePts[3] = {
@@ -495,10 +476,9 @@ void Phase2_Infection() {
             SelectObject(hMem, no);
             DeleteObject(noseB);
 
-            // Зубы
             HPEN toothPen = CreatePen(PS_SOLID, 3, RGB(60, 60, 60));
             HGDIOBJ to = SelectObject(hMem, toothPen);
-            int teethY1 = cy + R + 0;
+            int teethY1 = cy + R;
             int teethY2 = cy + R + 30;
             for (int i = -3; i <= 3; ++i) {
                 int x = cx + i * (R / 4);
@@ -508,7 +488,6 @@ void Phase2_Infection() {
             SelectObject(hMem, to);
             DeleteObject(toothPen);
 
-            // Трещина
             HPEN crackPen = CreatePen(PS_SOLID, 2, RGB(70, 70, 70));
             HGDIOBJ co = SelectObject(hMem, crackPen);
             MoveToEx(hMem, cx - R/3, cy - R - 15, nullptr);
@@ -518,9 +497,8 @@ void Phase2_Infection() {
             SelectObject(hMem, co);
             DeleteObject(crackPen);
         }
-        // ================= /ЧЕРЕП =================
+        // ============ /ЧЕРЕП ============
 
-        // Лог
         HFONT f = CreateFontW(16, 0, 0, 0, FW_BOLD, 0, 0, 0,
             DEFAULT_CHARSET, 0, 0, 0, 0, L"Consolas");
         HGDIOBJ of = SelectObject(hMem, f);
@@ -549,7 +527,6 @@ void Phase2_Infection() {
         SelectObject(hMem, old); DeleteObject(bmp); DeleteDC(hMem);
         SelectObject(hRed, oldR); DeleteObject(bRed); DeleteDC(hRed);
 
-        // Google-запросы
         static int opened = 0;
         int shouldOpen = (int)(elapsed / 4000);
         if (shouldOpen > opened && opened < 5) {
@@ -644,13 +621,9 @@ void Phase3_RgbChaos() {
 
         int shouldShow = (int)(elapsed / 3000);
         if (shouldShow > lastIe) {
-            if (lastIe == 0) {
-                PostMessageW(g_fakeIe1, WM_USER + 1, 0, 0);
-            } else if (lastIe == 1) {
-                PostMessageW(g_fakeIe2, WM_USER + 1, 0, 0);
-            } else if (lastIe == 2) {
-                PostMessageW(g_fakeIe3, WM_USER + 1, 0, 0);
-            }
+            if (lastIe == 0)      PostMessageW(g_fakeIe1, WM_USER + 1, 0, 0);
+            else if (lastIe == 1) PostMessageW(g_fakeIe2, WM_USER + 1, 0, 0);
+            else if (lastIe == 2) PostMessageW(g_fakeIe3, WM_USER + 1, 0, 0);
             lastIe++;
         }
 
@@ -775,7 +748,7 @@ void Phase4_MrsMajor() {
         Sleep(100);
     }
 
-    // ================= СКРИМЕР =================
+    // СКРИМЕР
     g_screamer = true;
     PlaySoundW(nullptr, nullptr, 0);
     Beep(80, 500);
