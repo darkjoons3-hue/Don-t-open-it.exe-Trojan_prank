@@ -1,0 +1,4 @@
+#include <windows.h>
+
+IDR_RANSOM  RCDATA  "ransom.mp3"
+IDR_SKULL   RCDATA  "skull.bmp"
